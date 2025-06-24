@@ -3,8 +3,7 @@ import argparse
 import numpy as np
 import torch
 from torch import nn
-from Models_.AbsolutePositionalEncoding import tAPE, AbsolutePositionalEncoding, LearnablePositionalEncoding
-from Models_.Attention import Attention, Attention_Rel_Scl, Attention_Rel_Vec
+
 from layers.SelfAttention_Family import AttentionLayer, FullAttention
 
 import torch.nn.functional as F
@@ -17,53 +16,6 @@ class Config:
             setattr(self, key, value)
 
 
-class Inception_Block_V2(nn.Module):
-    def __init__(self, in_channels, out_channels, num_kernels=6, init_weight=True):
-        super(Inception_Block_V2, self).__init__()
-        self.in_channels = in_channels
-        self.out_channels = out_channels
-        self.num_kernels = num_kernels
-        kernels = []
-        for i in range(self.num_kernels // 2):
-            kernels.append(nn.Conv2d(in_channels, out_channels, kernel_size=[1, 2 * i + 3], padding=[0, i + 1]))
-            kernels.append(nn.Conv2d(in_channels, out_channels, kernel_size=[2 * i + 3, 1], padding=[i + 1, 0]))
-        kernels.append(nn.Conv2d(in_channels, out_channels, kernel_size=1))
-        self.kernels = nn.ModuleList(kernels)
-
-    def forward(self, x):
-        res_list = []
-        for i in range(self.num_kernels + 1):
-            res_list.append(self.kernels[i](x))
-        res = torch.stack(res_list, dim=-1).mean(-1)
-        return res
-
-
-# 定义包含 Inception_Block_V2 的网络
-class InceptionNet(nn.Module):
-    def __init__(self, in_channels, emb_size, seq_len, num_classes=10):
-        super(InceptionNet, self).__init__()
-        self.inception_block1 = Inception_Block_V2(in_channels=in_channels, out_channels=in_channels,
-                                                   )
-
-        self.line = nn.Linear(seq_len, 1)
-
-        self.fc = nn.Linear(in_channels * emb_size, num_classes)
-
-    def forward(self, x):
-        x = self.inception_block1(x)
-        x = F.relu(x)
-
-        # x_temp = self.line(x_temp)
-
-        # x_temp = x.view(-1, x.size(-1))
-        # x_temp = self.avg_pool(x_temp)
-        # x = x_temp.view(x.shape[0], x.shape[1], x.shape[2])
-
-        x = self.line(x)
-
-        x = torch.flatten(x, 1)
-        x = self.fc(x)
-        return x
 
 
 class AttentionModule(nn.Module):
@@ -164,10 +116,10 @@ class MSCFormer(nn.Module):
         self.space_LayerNorm2 = nn.LayerNorm(emb_size, eps=1e-5)
 
         self.space_FeedForward = nn.Sequential(
-            nn.Conv1d(emb_size, dim_ff, kernel_size=1),  # 使用kernel_size=1实现类似线性变换
+            nn.Conv1d(emb_size, dim_ff, kernel_size=1),
             nn.ReLU(),
             nn.Dropout(config.dropout),
-            nn.Conv1d(dim_ff, emb_size, kernel_size=1),  # 使用kernel_size=1实现类似线性变换
+            nn.Conv1d(dim_ff, emb_size, kernel_size=1),
             nn.Dropout(config.dropout)
         )
 
@@ -214,36 +166,8 @@ class MSCFormer(nn.Module):
 
         out = self.out(out)
 
-        # 获取位置编码
+
         pos_encodings = self.learn_Position.get_positional_encodings()
 
         return out
 
-
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--Data_shape', type=tuple, default=(64, 6, 16))
-    parser.add_argument('--L', type=int, default=8)
-    parser.add_argument('--num_class', type=int, default=8)
-    parser.add_argument('--num_heads', type=int, default=8)
-    parser.add_argument('--dim_ff', type=int, default=256)
-    parser.add_argument('--emb_size', type=int, default=66)
-   # parser.add_argument('--num_filter', type=int, default=16, help='Internal dimension of transformer embeddings')
-    parser.add_argument('--dropout', type=float, default=0.1)
-    parser.add_argument('--Fix_pos_encode', choices={'tAPE', 'Learn', 'None'}, default='tAPE',
-                        help='Fix Position Embedding')
-    parser.add_argument('--Rel_pos_encode', choices={'eRPE', 'Vector', 'None'}, default='eRPE',
-                        help='Relative Position Embedding')
-    parser.add_argument('--l1', type=int, default=4, help='')
-    parser.add_argument('--l2', type=int, default=8, help='')
-    parser.add_argument('--l3', type=int, default=8, help='')
-    parser.add_argument('--l4', type=int, default=10000, help='')
-    args = parser.parse_args([])
-
-    # 创建 Config 实例
-    config = Config(args)
-
-    model = MSCFormer(config, 8)
-    x = torch.zeros((64, 6, 16))
-    out, *res = model(x)
-    print(out.shape)
